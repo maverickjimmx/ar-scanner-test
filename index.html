@@ -8,14 +8,20 @@
     <style>
         body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; background: #000; }
         #ui { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10; text-align: center; width: 90%; }
-        #status { color: white; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 12px; margin-bottom: 15px; font-size: 16px; border: 1px solid #444; }
-        button { background: #22c55e; color: black; border: none; padding: 18px 35px; border-radius: 50px; font-weight: bold; cursor: pointer; font-size: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        #status { color: white; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 12px; margin-bottom: 15px; font-size: 14px; border: 1px solid #444; line-height: 1.4; }
+        .btn-group { display: flex; gap: 10px; justify-content: center; }
+        button { background: #22c55e; color: black; border: none; padding: 18px 25px; border-radius: 50px; font-weight: bold; cursor: pointer; font-size: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        button#reset-btn { background: #ef4444; color: white; display: none; }
+        b { color: #22c55e; }
     </style>
 </head>
 <body>
     <div id="ui">
         <div id="status">Initializing AR...</div>
-        <div id="ar-button-container"></div>
+        <div class="btn-group">
+            <div id="ar-button-container"></div>
+            <button id="reset-btn">Reset Scan</button>
+        </div>
     </div>
 
 <script type="module">
@@ -26,9 +32,10 @@
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     
-    // Ruler variables
+    // Ruler & Tracking
     let scannedPoints = [];
-    let currentLine = null;
+    let activeMarkers = []; 
+    let totalDistanceMeters = 0;
 
     init();
     animate();
@@ -52,7 +59,9 @@
         const button = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
         document.getElementById('ar-button-container').appendChild(button);
 
-        // Reticle (The Scanner Ring)
+        document.getElementById('reset-btn').addEventListener('click', resetScanner);
+
+        // Reticle
         reticle = new THREE.Mesh(
             new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
             new THREE.MeshBasicMaterial({ color: 0x22c55e })
@@ -61,7 +70,6 @@
         reticle.visible = false;
         scene.add(reticle);
 
-        // Interaction
         controller = renderer.xr.getController(0);
         controller.addEventListener('select', onSelect);
         scene.add(controller);
@@ -71,39 +79,53 @@
 
     function onSelect() {
         if (reticle.visible) {
-            // 1. Capture Position
+            document.getElementById('reset-btn').style.display = 'block';
+
             const position = new THREE.Vector3();
             reticle.matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
             
-            // 2. Add Visual Marker (Small Sphere)
+            // Add Visual Marker
             const marker = new THREE.Mesh(
                 new THREE.SphereGeometry(0.02),
                 new THREE.MeshPhongMaterial({ color: 0x3b82f6 })
             );
             marker.position.copy(position);
             scene.add(marker);
+            activeMarkers.push(marker);
 
             scannedPoints.push(position.clone());
 
-            // 3. Logic for Two Points (Distance & Line)
             if (scannedPoints.length >= 2) {
                 const p1 = scannedPoints[scannedPoints.length - 2];
                 const p2 = scannedPoints[scannedPoints.length - 1];
                 
-                // Calculate distance
-                const distance = p1.distanceTo(p2);
-                const distanceCm = (distance * 100).toFixed(2);
-                document.getElementById('status').innerHTML = `Last Segment: <b>${distanceCm} cm</b>`;
+                const segmentDistance = p1.distanceTo(p2);
+                totalDistanceMeters += segmentDistance;
 
-                // Draw 3D Line between points
+                const lastCm = (segmentDistance * 100).toFixed(2);
+                const totalCm = (totalDistanceMeters * 100).toFixed(2);
+                
+                document.getElementById('status').innerHTML = 
+                    `Last Segment: <b>${lastCm} cm</b><br>Total Distance: <b>${totalCm} cm</b>`;
+
                 const lineGeometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 5 });
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
                 const line = new THREE.Line(lineGeometry, lineMaterial);
                 scene.add(line);
+                activeMarkers.push(line);
             } else {
                 document.getElementById('status').innerText = "First point set. Find next point!";
             }
         }
+    }
+
+    function resetScanner() {
+        activeMarkers.forEach(obj => scene.remove(obj));
+        activeMarkers = [];
+        scannedPoints = [];
+        totalDistanceMeters = 0;
+        document.getElementById('status').innerText = "Scanner Reset. Tap to start again.";
+        document.getElementById('reset-btn').style.display = 'none';
     }
 
     function onWindowResize() {
