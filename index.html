@@ -7,11 +7,69 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; background: #000; }
-        #ui { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10; text-align: center; width: 90%; }
-        #status { color: white; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 12px; margin-bottom: 15px; font-size: 14px; border: 1px solid #444; line-height: 1.4; }
-        .btn-group { display: flex; gap: 10px; justify-content: center; }
-        button { background: #22c55e; color: black; border: none; padding: 18px 25px; border-radius: 50px; font-weight: bold; cursor: pointer; font-size: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-        button#reset-btn { background: #ef4444; color: white; display: none; }
+        
+        /* Main UI Container */
+        #ui { 
+            position: absolute; 
+            bottom: 0; 
+            left: 0; 
+            width: 100%; 
+            padding-bottom: env(safe-area-inset-bottom, 30px); /* Adjusts for mobile notches/home bars */
+            z-index: 100; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none; /* Let clicks pass through to AR session unless hitting a button */
+        }
+
+        /* Status Box - Now flexible and won't overlap */
+        #status { 
+            color: white; 
+            background: rgba(0,0,0,0.8); 
+            padding: 12px 20px; 
+            border-radius: 15px; 
+            margin-bottom: 15px; 
+            font-size: 15px; 
+            border: 1px solid #444; 
+            width: 85%;
+            max-width: 400px;
+            pointer-events: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        /* Button Container */
+        .btn-group { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: center; 
+            width: 100%;
+            padding-bottom: 20px;
+            pointer-events: auto;
+        }
+
+        /* Targeting the Three.js generated button specifically */
+        #ar-button-container button {
+            background: #22c55e !important;
+            color: black !important;
+            border-radius: 50px !important;
+            font-weight: bold !important;
+            padding: 15px 25px !important;
+            font-size: 14px !important;
+            border: none !important;
+        }
+
+        button#reset-btn { 
+            background: #ef4444; 
+            color: white; 
+            border: none; 
+            padding: 15px 25px; 
+            border-radius: 50px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            font-size: 14px; 
+            display: none; /* Hidden until first point is placed */
+        }
+        
         b { color: #22c55e; }
     </style>
 </head>
@@ -32,7 +90,6 @@
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     
-    // Ruler & Tracking
     let scannedPoints = [];
     let activeMarkers = []; 
     let totalDistanceMeters = 0;
@@ -61,7 +118,6 @@
 
         document.getElementById('reset-btn').addEventListener('click', resetScanner);
 
-        // Reticle
         reticle = new THREE.Mesh(
             new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
             new THREE.MeshBasicMaterial({ color: 0x22c55e })
@@ -84,7 +140,6 @@
             const position = new THREE.Vector3();
             reticle.matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
             
-            // Add Visual Marker
             const marker = new THREE.Mesh(
                 new THREE.SphereGeometry(0.02),
                 new THREE.MeshPhongMaterial({ color: 0x3b82f6 })
@@ -102,11 +157,12 @@
                 const segmentDistance = p1.distanceTo(p2);
                 totalDistanceMeters += segmentDistance;
 
-                const lastCm = (segmentDistance * 100).toFixed(2);
-                const totalCm = (totalDistanceMeters * 100).toFixed(2);
+                // DISPLAY IN METERS (m)
+                const lastM = segmentDistance.toFixed(3);
+                const totalM = totalDistanceMeters.toFixed(3);
                 
                 document.getElementById('status').innerHTML = 
-                    `Last Segment: <b>${lastCm} cm</b><br>Total Distance: <b>${totalCm} cm</b>`;
+                    `Last Segment: <b>${lastM} m</b><br>Total Distance: <b>${totalM} m</b>`;
 
                 const lineGeometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
                 const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
