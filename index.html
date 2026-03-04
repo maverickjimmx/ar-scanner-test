@@ -3,70 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Ruler Pro + Multi-Unit</title>
+    <title>AR Ruler Pro + Fix</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; font-family: sans-serif; background: transparent; }
-        
-        #header-ui {
-            position: absolute;
-            top: 15px;
-            left: 0;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            z-index: 100;
-            pointer-events: none;
-        }
-
-        #status {
-            background: rgba(0, 0, 0, 0.85);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 12px;
-            margin-bottom: 8px;
-            font-size: 13px;
-            border: 1px solid #444;
-            width: 85%;
-            text-align: center;
-        }
-
-        .top-btn-group {
-            display: flex;
-            gap: 6px;
-            pointer-events: auto;
-            justify-content: center;
-        }
-
-        .control-btn {
-            padding: 10px 12px;
-            border-radius: 8px;
-            border: none;
-            font-weight: bold;
-            font-size: 11px;
-            cursor: pointer;
-            display: none; 
-            text-transform: uppercase;
-        }
-
+        #header-ui { position: absolute; top: 15px; left: 0; width: 100%; display: flex; flex-direction: column; align-items: center; z-index: 100; pointer-events: none; }
+        #status { background: rgba(0, 0, 0, 0.85); color: white; padding: 10px 15px; border-radius: 12px; margin-bottom: 8px; font-size: 13px; border: 1px solid #444; width: 85%; text-align: center; }
+        .top-btn-group { display: flex; gap: 6px; pointer-events: auto; justify-content: center; }
+        .control-btn { padding: 10px 12px; border-radius: 8px; border: none; font-weight: bold; font-size: 11px; cursor: pointer; display: none; text-transform: uppercase; }
         #reset-btn { background: #ef4444; color: white; }
         #finish-btn { background: #3b82f6; color: white; }
-        #unit-toggle { background: #f59e0b; color: black; display: none; } 
-        
-        #result-screen {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95);
-            z-index: 200;
-            color: white;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-
+        #unit-toggle { background: #f59e0b; color: black; } 
+        #result-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; color: white; flex-direction: column; justify-content: center; align-items: center; padding: 20px; }
         .final-box { background: #222; padding: 25px; border-radius: 15px; border: 1px solid #22c55e; margin-bottom: 20px; text-align: center; }
         b { color: #22c55e; }
     </style>
@@ -104,42 +52,36 @@
     let activeMarkers = []; 
     let totalDistanceMeters = 0;
     let lastSegmentMeters = 0;
-    
-    // Unit cycle: 'm' -> 'cm' -> 'ft'
     let unitMode = 0; 
     const units = ['m', 'cm', 'ft'];
+    
+    // Timer to prevent button clicks from acting like surface taps
+    let lastUiActionTime = 0;
 
     init();
     animate();
 
     function formatDistance(meters) {
         const mode = units[unitMode];
-        if (mode === 'm') {
-            return `${meters.toFixed(3)} m`;
-        } else if (mode === 'cm') {
-            return `${(meters * 100).toFixed(1)} cm`;
-        } else {
-            const totalInches = meters * 39.3701;
-            const feet = Math.floor(totalInches / 12);
-            const inches = (totalInches % 12).toFixed(1);
-            return `${feet}' ${inches}"`;
-        }
+        if (mode === 'm') return `${meters.toFixed(3)} m`;
+        if (mode === 'cm') return `${(meters * 100).toFixed(1)} cm`;
+        const totalInches = meters * 39.3701;
+        const feet = Math.floor(totalInches / 12);
+        const inches = (totalInches % 12).toFixed(1);
+        return `${feet}' ${inches}"`;
     }
 
     function init() {
         const container = document.createElement('div');
         document.body.appendChild(container);
-
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 0); 
         renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
-
         scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
         grid = new THREE.GridHelper(10, 20, 0x22c55e, 0x444444);
@@ -152,28 +94,33 @@
             domOverlay: { root: document.body } 
         }));
 
+        // UI Handlers with Timestamping
         document.getElementById('unit-toggle').onclick = () => {
+            lastUiActionTime = Date.now();
             unitMode = (unitMode + 1) % units.length;
             const label = units[unitMode] === 'm' ? 'Meters' : (units[unitMode] === 'cm' ? 'CM' : 'Ft/In');
             document.getElementById('unit-toggle').innerText = `Unit: ${label}`;
             updateStatus();
         };
 
-        document.getElementById('reset-btn').onclick = resetScanner;
-        
+        document.getElementById('reset-btn').onclick = () => {
+            lastUiActionTime = Date.now();
+            resetScanner();
+        };
+
         document.getElementById('finish-btn').onclick = () => {
-            document.getElementById('final-stats').innerHTML = 
-                `Points: <b>${scannedPoints.length}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
+            lastUiActionTime = Date.now();
+            document.getElementById('final-stats').innerHTML = `Points: <b>${scannedPoints.length}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
             document.getElementById('result-screen').style.display = 'flex';
         };
 
         document.getElementById('copy-btn').onclick = () => {
-            const text = `AR Measurement: ${formatDistance(totalDistanceMeters)} (${scannedPoints.length} points)`;
-            navigator.clipboard.writeText(text);
-            alert("Copied!");
+            lastUiActionTime = Date.now();
+            navigator.clipboard.writeText(`AR: ${formatDistance(totalDistanceMeters)}`).then(() => alert("Copied!"));
         };
 
         document.getElementById('close-result').onclick = () => {
+            lastUiActionTime = Date.now();
             document.getElementById('result-screen').style.display = 'none';
         };
 
@@ -184,10 +131,7 @@
             document.getElementById('level-val').style.color = isLevel ? "#22c55e" : "#888";
         });
 
-        reticle = new THREE.Mesh(
-            new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
-            new THREE.MeshBasicMaterial({ color: 0x22c55e })
-        );
+        reticle = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
         reticle.matrixAutoUpdate = false;
         reticle.visible = false;
         scene.add(reticle);
@@ -199,20 +143,18 @@
 
     function updateStatus() {
         if (scannedPoints.length >= 2) {
-            document.getElementById('instruction').innerHTML = 
-                `Last: <b>${formatDistance(lastSegmentMeters)}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
+            document.getElementById('instruction').innerHTML = `Last: <b>${formatDistance(lastSegmentMeters)}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
         } else if (scannedPoints.length === 1) {
             document.getElementById('instruction').innerText = "First point set. Find next point.";
         }
     }
 
     function onSelect() {
-        if (reticle.visible) {
+        // BUG FIX: Only allow placing a marker if it's been > 300ms since a UI button was tapped
+        if (reticle.visible && (Date.now() - lastUiActionTime > 300)) {
             document.querySelectorAll('.control-btn').forEach(b => b.style.display = 'block');
-
             const pos = new THREE.Vector3();
             reticle.matrix.decompose(pos, new THREE.Quaternion(), new THREE.Vector3());
-            
             const marker = new THREE.Mesh(new THREE.SphereGeometry(0.015), new THREE.MeshPhongMaterial({ color: 0x3b82f6 }));
             marker.position.copy(pos);
             scene.add(marker);
@@ -225,16 +167,10 @@
                 lastSegmentMeters = p1.distanceTo(p2);
                 totalDistanceMeters += lastSegmentMeters;
                 updateStatus();
-
-                const line = new THREE.Line(
-                    new THREE.BufferGeometry().setFromPoints([p1, p2]),
-                    new THREE.LineBasicMaterial({ color: 0xffffff })
-                );
+                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: 0xffffff }));
                 scene.add(line);
                 activeMarkers.push(line);
-            } else {
-                updateStatus();
-            }
+            } else { updateStatus(); }
         }
     }
 
@@ -271,9 +207,7 @@
                             grid.visible = true;
                             grid.position.set(0, pose.transform.position.y, 0);
                         }
-                    } else {
-                        reticle.visible = false;
-                    }
+                    } else { reticle.visible = false; }
                 }
             }
             renderer.render(scene, camera);
