@@ -3,120 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>ARCore Scanner & Ruler</title>
+    <title>AR Ruler Pro + Grid & Level</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; background: #000; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background: transparent; }
         
-        /* Main UI Container */
-        #ui { 
-            position: absolute; 
-            bottom: 0; 
-            left: 0; 
-            width: 100%; 
-            padding-bottom: env(safe-area-inset-bottom, 30px); /* Adjusts for mobile notches/home bars */
-            z-index: 100; 
+        #header-ui {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
-            pointer-events: none; /* Let clicks pass through to AR session unless hitting a button */
+            z-index: 100;
+            pointer-events: none;
         }
 
-        /* Status Box - Now flexible and won't overlap */
-        #status { 
-            color: white; 
-            background: rgba(0,0,0,0.8); 
-            padding: 12px 20px; 
-            border-radius: 15px; 
-            margin-bottom: 15px; 
-            font-size: 15px; 
-            border: 1px solid #444; 
+        #status {
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            border: 1px solid #444;
             width: 85%;
-            max-width: 400px;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        #level-indicator {
+            font-size: 11px;
+            font-weight: bold;
+            margin-top: 5px;
+            display: block;
+            text-transform: uppercase;
+        }
+
+        .top-btn-group {
+            display: flex;
+            gap: 10px;
             pointer-events: auto;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
 
-        /* Button Container */
-        .btn-group { 
-            display: flex; 
-            gap: 12px; 
-            justify-content: center; 
-            width: 100%;
-            padding-bottom: 20px;
-            pointer-events: auto;
+        .control-btn {
+            padding: 10px 18px;
+            border-radius: 6px;
+            border: none;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            display: none; 
         }
 
-        /* Targeting the Three.js generated button specifically */
-        #ar-button-container button {
-            background: #22c55e !important;
-            color: black !important;
-            border-radius: 50px !important;
-            font-weight: bold !important;
-            padding: 15px 25px !important;
-            font-size: 14px !important;
-            border: none !important;
-        }
-
-        button#reset-btn { 
-            background: #ef4444; 
-            color: white; 
-            border: none; 
-            padding: 15px 25px; 
-            border-radius: 50px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            font-size: 14px; 
-            display: none; /* Hidden until first point is placed */
-        }
+        #reset-btn { background: #ef4444; color: white; }
+        #finish-btn { background: #3b82f6; color: white; }
         
+        #result-screen {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 200;
+            color: white;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .final-box { background: #222; padding: 25px; border-radius: 15px; border: 1px solid #22c55e; margin-bottom: 20px; text-align: center; }
         b { color: #22c55e; }
+        .level-perfect { color: #22c55e; }
+        .level-tilted { color: #888; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div id="status">Initializing AR...</div>
-        <div class="btn-group">
-            <div id="ar-button-container"></div>
-            <button id="reset-btn">Reset Scan</button>
+
+    <div id="header-ui">
+        <div id="status">
+            <span id="instruction">Scanning for surfaces...</span>
+            <div id="level-indicator">Device Level: <span id="level-val">--</span></div>
         </div>
+        <div class="top-btn-group">
+            <button id="reset-btn" class="control-btn">Reset</button>
+            <button id="finish-btn" class="control-btn">Finish</button>
+        </div>
+    </div>
+
+    <div id="result-screen">
+        <div class="final-box">
+            <h2 style="margin-top:0">Scan Results</h2>
+            <div id="final-stats" style="font-size: 18px; line-height: 1.6;"></div>
+        </div>
+        <button id="copy-btn" style="background:#22c55e; padding:15px; border-radius:8px; border:none; width:220px; font-weight:bold; margin-bottom:10px;">Copy Results</button>
+        <button id="close-result" style="background:transparent; color:white; border:1px solid white; padding:10px; border-radius:8px; width:220px;">Return to Camera</button>
     </div>
 
 <script type="module">
     import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
 
-    let container, camera, scene, renderer;
-    let reticle, controller;
+    let camera, scene, renderer, reticle, controller, grid;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
-    
     let scannedPoints = [];
     let activeMarkers = []; 
-    let totalDistanceMeters = 0;
+    let totalDistance = 0;
 
     init();
     animate();
 
     function init() {
-        container = document.createElement('div');
+        const container = document.createElement('div');
         document.body.appendChild(container);
 
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-        scene.add(light);
-
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0); 
         renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
 
-        const button = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
-        document.getElementById('ar-button-container').appendChild(button);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-        document.getElementById('reset-btn').addEventListener('click', resetScanner);
+        // 1. Grid Helper (Initially hidden)
+        grid = new THREE.GridHelper(10, 20, 0x22c55e, 0x444444);
+        grid.visible = false;
+        scene.add(grid);
+
+        document.body.appendChild(ARButton.createButton(renderer, { 
+            requiredFeatures: ['hit-test'],
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.body } 
+        }));
+
+        // UI Handlers
+        document.getElementById('reset-btn').onclick = resetScanner;
+        document.getElementById('finish-btn').onclick = () => {
+            document.getElementById('final-stats').innerHTML = `Points: <b>${scannedPoints.length}</b><br>Total Distance: <b>${totalDistance.toFixed(3)} m</b>`;
+            document.getElementById('result-screen').style.display = 'flex';
+        };
+        document.getElementById('copy-btn').onclick = () => {
+            const text = `AR Measurement: ${totalDistance.toFixed(3)} meters (${scannedPoints.length} points)`;
+            navigator.clipboard.writeText(text);
+            alert("Copied!");
+        };
+        document.getElementById('close-result').onclick = () => {
+            document.getElementById('result-screen').style.display = 'none';
+        };
+
+        // Level Logic
+        window.addEventListener('deviceorientation', (event) => {
+            const pitch = Math.abs(event.beta); 
+            const roll = Math.abs(event.gamma);  
+            const levelEl = document.getElementById('level-val');
+            
+            if (pitch < 4 && roll < 4) {
+                levelEl.innerText = "Level";
+                levelEl.className = "level-perfect";
+            } else {
+                levelEl.innerText = "Tilted";
+                levelEl.className = "level-tilted";
+            }
+        });
 
         reticle = new THREE.Mesh(
             new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
@@ -129,48 +182,35 @@
         controller = renderer.xr.getController(0);
         controller.addEventListener('select', onSelect);
         scene.add(controller);
-
-        window.addEventListener('resize', onWindowResize);
     }
 
     function onSelect() {
         if (reticle.visible) {
-            document.getElementById('reset-btn').style.display = 'block';
+            document.querySelectorAll('.control-btn').forEach(b => b.style.display = 'block');
 
-            const position = new THREE.Vector3();
-            reticle.matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+            const pos = new THREE.Vector3();
+            reticle.matrix.decompose(pos, new THREE.Quaternion(), new THREE.Vector3());
             
-            const marker = new THREE.Mesh(
-                new THREE.SphereGeometry(0.02),
-                new THREE.MeshPhongMaterial({ color: 0x3b82f6 })
-            );
-            marker.position.copy(position);
+            const marker = new THREE.Mesh(new THREE.SphereGeometry(0.015), new THREE.MeshPhongMaterial({ color: 0x3b82f6 }));
+            marker.position.copy(pos);
             scene.add(marker);
             activeMarkers.push(marker);
-
-            scannedPoints.push(position.clone());
+            scannedPoints.push(pos.clone());
 
             if (scannedPoints.length >= 2) {
                 const p1 = scannedPoints[scannedPoints.length - 2];
                 const p2 = scannedPoints[scannedPoints.length - 1];
-                
-                const segmentDistance = p1.distanceTo(p2);
-                totalDistanceMeters += segmentDistance;
+                const dist = p1.distanceTo(p2);
+                totalDistance += dist;
 
-                // DISPLAY IN METERS (m)
-                const lastM = segmentDistance.toFixed(3);
-                const totalM = totalDistanceMeters.toFixed(3);
-                
-                document.getElementById('status').innerHTML = 
-                    `Last Segment: <b>${lastM} m</b><br>Total Distance: <b>${totalM} m</b>`;
+                document.getElementById('instruction').innerHTML = `Total: <b>${totalDistance.toFixed(3)} m</b> (${scannedPoints.length} pts)`;
 
-                const lineGeometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
-                const line = new THREE.Line(lineGeometry, lineMaterial);
+                const line = new THREE.Line(
+                    new THREE.BufferGeometry().setFromPoints([p1, p2]),
+                    new THREE.LineBasicMaterial({ color: 0xffffff })
+                );
                 scene.add(line);
                 activeMarkers.push(line);
-            } else {
-                document.getElementById('status').innerText = "First point set. Find next point!";
             }
         }
     }
@@ -179,51 +219,44 @@
         activeMarkers.forEach(obj => scene.remove(obj));
         activeMarkers = [];
         scannedPoints = [];
-        totalDistanceMeters = 0;
-        document.getElementById('status').innerText = "Scanner Reset. Tap to start again.";
-        document.getElementById('reset-btn').style.display = 'none';
-    }
-
-    function onWindowResize() {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        totalDistance = 0;
+        grid.visible = false;
+        document.getElementById('instruction').innerText = "Scanner Reset. Tap surface.";
+        document.querySelectorAll('.control-btn').forEach(b => b.style.display = 'none');
     }
 
     function animate() {
-        renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-        if (frame) {
-            const referenceSpace = renderer.xr.getReferenceSpace();
-            const session = renderer.xr.getSession();
-
-            if (hitTestSourceRequested === false) {
-                session.requestReferenceSpace('viewer').then((refSpace) => {
-                    session.requestHitTestSource({ space: refSpace }).then((source) => {
-                        hitTestSource = source;
+        renderer.setAnimationLoop((timestamp, frame) => {
+            if (frame) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+                if (!hitTestSourceRequested) {
+                    session.requestReferenceSpace('viewer').then(ref => {
+                        session.requestHitTestSource({ space: ref }).then(src => hitTestSource = src);
                     });
-                });
-                hitTestSourceRequested = true;
-            }
-
-            if (hitTestSource) {
-                const hitTestResults = frame.getHitTestResults(hitTestSource);
-                if (hitTestResults.length) {
-                    const hit = hitTestResults[0];
-                    reticle.visible = true;
-                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                    
-                    if(scannedPoints.length === 0) {
-                        document.getElementById('status').innerText = "Surface Detected. Tap to start.";
+                    hitTestSourceRequested = true;
+                }
+                if (hitTestSource) {
+                    const results = frame.getHitTestResults(hitTestSource);
+                    if (results.length) {
+                        const hit = results[0];
+                        const pose = hit.getPose(referenceSpace);
+                        
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(pose.transform.matrix);
+                        
+                        // Update Grid Position to the first detected surface height
+                        if (!grid.visible) {
+                            grid.visible = true;
+                            grid.position.set(0, pose.transform.position.y, 0);
+                        }
+                    } else {
+                        reticle.visible = false;
                     }
-                } else {
-                    reticle.visible = false;
                 }
             }
-        }
-        renderer.render(scene, camera);
+            renderer.render(scene, camera);
+        });
     }
 </script>
 </body>
