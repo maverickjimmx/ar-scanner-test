@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Ruler Pro + Grid & Level</title>
+    <title>AR Ruler Pro + Multi-Unit</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; font-family: sans-serif; background: transparent; }
@@ -30,35 +30,29 @@
             border: 1px solid #444;
             width: 85%;
             text-align: center;
-            line-height: 1.4;
-        }
-
-        #level-indicator {
-            font-size: 11px;
-            font-weight: bold;
-            margin-top: 5px;
-            display: block;
-            text-transform: uppercase;
         }
 
         .top-btn-group {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             pointer-events: auto;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
         .control-btn {
-            padding: 10px 18px;
+            padding: 10px 15px;
             border-radius: 6px;
             border: none;
             font-weight: bold;
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
             display: none; 
         }
 
         #reset-btn { background: #ef4444; color: white; }
         #finish-btn { background: #3b82f6; color: white; }
+        #unit-toggle { background: #f59e0b; color: black; display: none; } /* Amber color */
         
         #result-screen {
             display: none;
@@ -75,8 +69,6 @@
 
         .final-box { background: #222; padding: 25px; border-radius: 15px; border: 1px solid #22c55e; margin-bottom: 20px; text-align: center; }
         b { color: #22c55e; }
-        .level-perfect { color: #22c55e; }
-        .level-tilted { color: #888; }
     </style>
 </head>
 <body>
@@ -84,9 +76,10 @@
     <div id="header-ui">
         <div id="status">
             <span id="instruction">Scanning for surfaces...</span>
-            <div id="level-indicator">Device Level: <span id="level-val">--</span></div>
+            <div id="level-val" style="font-size:10px; margin-top:5px; color:#888;">--</div>
         </div>
         <div class="top-btn-group">
+            <button id="unit-toggle" class="control-btn">Unit: Meters</button>
             <button id="reset-btn" class="control-btn">Reset</button>
             <button id="finish-btn" class="control-btn">Finish</button>
         </div>
@@ -98,7 +91,7 @@
             <div id="final-stats" style="font-size: 18px; line-height: 1.6;"></div>
         </div>
         <button id="copy-btn" style="background:#22c55e; padding:15px; border-radius:8px; border:none; width:220px; font-weight:bold; margin-bottom:10px;">Copy Results</button>
-        <button id="close-result" style="background:transparent; color:white; border:1px solid white; padding:10px; border-radius:8px; width:220px;">Return to Camera</button>
+        <button id="close-result" style="background:transparent; color:white; border:1px solid white; padding:10px; border-radius:8px; width:220px;">Return</button>
     </div>
 
 <script type="module">
@@ -109,10 +102,25 @@
     let hitTestSourceRequested = false;
     let scannedPoints = [];
     let activeMarkers = []; 
-    let totalDistance = 0;
+    let totalDistanceMeters = 0;
+    let lastSegmentMeters = 0;
+    
+    // Unit state: 'metric' (m) or 'imperial' (ft/in)
+    let currentUnit = 'metric';
 
     init();
     animate();
+
+    function formatDistance(meters) {
+        if (currentUnit === 'metric') {
+            return `${meters.toFixed(3)} m`;
+        } else {
+            const totalInches = meters * 39.3701;
+            const feet = Math.floor(totalInches / 12);
+            const inches = (totalInches % 12).toFixed(1);
+            return `${feet}' ${inches}"`;
+        }
+    }
 
     function init() {
         const container = document.createElement('div');
@@ -130,7 +138,6 @@
 
         scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-        // 1. Grid Helper (Initially hidden)
         grid = new THREE.GridHelper(10, 20, 0x22c55e, 0x444444);
         grid.visible = false;
         scene.add(grid);
@@ -141,34 +148,36 @@
             domOverlay: { root: document.body } 
         }));
 
-        // UI Handlers
+        // UI Listeners
+        document.getElementById('unit-toggle').onclick = () => {
+            currentUnit = (currentUnit === 'metric') ? 'imperial' : 'metric';
+            document.getElementById('unit-toggle').innerText = `Unit: ${currentUnit === 'metric' ? 'Meters' : 'Ft/In'}`;
+            updateStatus();
+        };
+
         document.getElementById('reset-btn').onclick = resetScanner;
+        
         document.getElementById('finish-btn').onclick = () => {
-            document.getElementById('final-stats').innerHTML = `Points: <b>${scannedPoints.length}</b><br>Total Distance: <b>${totalDistance.toFixed(3)} m</b>`;
+            document.getElementById('final-stats').innerHTML = 
+                `Points: <b>${scannedPoints.length}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
             document.getElementById('result-screen').style.display = 'flex';
         };
+
         document.getElementById('copy-btn').onclick = () => {
-            const text = `AR Measurement: ${totalDistance.toFixed(3)} meters (${scannedPoints.length} points)`;
+            const text = `AR Measurement: ${formatDistance(totalDistanceMeters)} (${scannedPoints.length} points)`;
             navigator.clipboard.writeText(text);
             alert("Copied!");
         };
+
         document.getElementById('close-result').onclick = () => {
             document.getElementById('result-screen').style.display = 'none';
         };
 
-        // Level Logic
-        window.addEventListener('deviceorientation', (event) => {
-            const pitch = Math.abs(event.beta); 
-            const roll = Math.abs(event.gamma);  
-            const levelEl = document.getElementById('level-val');
-            
-            if (pitch < 4 && roll < 4) {
-                levelEl.innerText = "Level";
-                levelEl.className = "level-perfect";
-            } else {
-                levelEl.innerText = "Tilted";
-                levelEl.className = "level-tilted";
-            }
+        // Device Orientation for Level
+        window.addEventListener('deviceorientation', (e) => {
+            const pitch = Math.abs(e.beta); const roll = Math.abs(e.gamma);
+            document.getElementById('level-val').innerText = (pitch < 4 && roll < 4) ? "PERFECTLY LEVEL" : "TILTED";
+            document.getElementById('level-val').style.color = (pitch < 4 && roll < 4) ? "#22c55e" : "#888";
         });
 
         reticle = new THREE.Mesh(
@@ -182,6 +191,15 @@
         controller = renderer.xr.getController(0);
         controller.addEventListener('select', onSelect);
         scene.add(controller);
+    }
+
+    function updateStatus() {
+        if (scannedPoints.length >= 2) {
+            document.getElementById('instruction').innerHTML = 
+                `Last: <b>${formatDistance(lastSegmentMeters)}</b> | Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
+        } else if (scannedPoints.length === 1) {
+            document.getElementById('instruction').innerText = "First point set. Find next point.";
+        }
     }
 
     function onSelect() {
@@ -200,10 +218,9 @@
             if (scannedPoints.length >= 2) {
                 const p1 = scannedPoints[scannedPoints.length - 2];
                 const p2 = scannedPoints[scannedPoints.length - 1];
-                const dist = p1.distanceTo(p2);
-                totalDistance += dist;
-
-                document.getElementById('instruction').innerHTML = `Total: <b>${totalDistance.toFixed(3)} m</b> (${scannedPoints.length} pts)`;
+                lastSegmentMeters = p1.distanceTo(p2);
+                totalDistanceMeters += lastSegmentMeters;
+                updateStatus();
 
                 const line = new THREE.Line(
                     new THREE.BufferGeometry().setFromPoints([p1, p2]),
@@ -211,6 +228,8 @@
                 );
                 scene.add(line);
                 activeMarkers.push(line);
+            } else {
+                updateStatus();
             }
         }
     }
@@ -219,7 +238,8 @@
         activeMarkers.forEach(obj => scene.remove(obj));
         activeMarkers = [];
         scannedPoints = [];
-        totalDistance = 0;
+        totalDistanceMeters = 0;
+        lastSegmentMeters = 0;
         grid.visible = false;
         document.getElementById('instruction').innerText = "Scanner Reset. Tap surface.";
         document.querySelectorAll('.control-btn').forEach(b => b.style.display = 'none');
@@ -241,11 +261,8 @@
                     if (results.length) {
                         const hit = results[0];
                         const pose = hit.getPose(referenceSpace);
-                        
                         reticle.visible = true;
                         reticle.matrix.fromArray(pose.transform.matrix);
-                        
-                        // Update Grid Position to the first detected surface height
                         if (!grid.visible) {
                             grid.visible = true;
                             grid.position.set(0, pose.transform.position.y, 0);
