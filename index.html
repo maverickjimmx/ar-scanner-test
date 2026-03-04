@@ -10,7 +10,7 @@
         
         #header-ui {
             position: absolute;
-            top: 20px;
+            top: 15px;
             left: 0;
             width: 100%;
             display: flex;
@@ -23,8 +23,8 @@
         #status {
             background: rgba(0, 0, 0, 0.85);
             color: white;
-            padding: 12px 20px;
-            border-radius: 10px;
+            padding: 10px 15px;
+            border-radius: 12px;
             margin-bottom: 8px;
             font-size: 13px;
             border: 1px solid #444;
@@ -34,25 +34,25 @@
 
         .top-btn-group {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             pointer-events: auto;
-            flex-wrap: wrap;
             justify-content: center;
         }
 
         .control-btn {
-            padding: 10px 15px;
-            border-radius: 6px;
+            padding: 10px 12px;
+            border-radius: 8px;
             border: none;
             font-weight: bold;
-            font-size: 12px;
+            font-size: 11px;
             cursor: pointer;
             display: none; 
+            text-transform: uppercase;
         }
 
         #reset-btn { background: #ef4444; color: white; }
         #finish-btn { background: #3b82f6; color: white; }
-        #unit-toggle { background: #f59e0b; color: black; display: none; } /* Amber color */
+        #unit-toggle { background: #f59e0b; color: black; display: none; } 
         
         #result-screen {
             display: none;
@@ -76,7 +76,7 @@
     <div id="header-ui">
         <div id="status">
             <span id="instruction">Scanning for surfaces...</span>
-            <div id="level-val" style="font-size:10px; margin-top:5px; color:#888;">--</div>
+            <div id="level-val" style="font-size:10px; margin-top:4px; color:#888;">--</div>
         </div>
         <div class="top-btn-group">
             <button id="unit-toggle" class="control-btn">Unit: Meters</button>
@@ -105,15 +105,19 @@
     let totalDistanceMeters = 0;
     let lastSegmentMeters = 0;
     
-    // Unit state: 'metric' (m) or 'imperial' (ft/in)
-    let currentUnit = 'metric';
+    // Unit cycle: 'm' -> 'cm' -> 'ft'
+    let unitMode = 0; 
+    const units = ['m', 'cm', 'ft'];
 
     init();
     animate();
 
     function formatDistance(meters) {
-        if (currentUnit === 'metric') {
+        const mode = units[unitMode];
+        if (mode === 'm') {
             return `${meters.toFixed(3)} m`;
+        } else if (mode === 'cm') {
+            return `${(meters * 100).toFixed(1)} cm`;
         } else {
             const totalInches = meters * 39.3701;
             const feet = Math.floor(totalInches / 12);
@@ -148,10 +152,10 @@
             domOverlay: { root: document.body } 
         }));
 
-        // UI Listeners
         document.getElementById('unit-toggle').onclick = () => {
-            currentUnit = (currentUnit === 'metric') ? 'imperial' : 'metric';
-            document.getElementById('unit-toggle').innerText = `Unit: ${currentUnit === 'metric' ? 'Meters' : 'Ft/In'}`;
+            unitMode = (unitMode + 1) % units.length;
+            const label = units[unitMode] === 'm' ? 'Meters' : (units[unitMode] === 'cm' ? 'CM' : 'Ft/In');
+            document.getElementById('unit-toggle').innerText = `Unit: ${label}`;
             updateStatus();
         };
 
@@ -173,11 +177,11 @@
             document.getElementById('result-screen').style.display = 'none';
         };
 
-        // Device Orientation for Level
         window.addEventListener('deviceorientation', (e) => {
             const pitch = Math.abs(e.beta); const roll = Math.abs(e.gamma);
-            document.getElementById('level-val').innerText = (pitch < 4 && roll < 4) ? "PERFECTLY LEVEL" : "TILTED";
-            document.getElementById('level-val').style.color = (pitch < 4 && roll < 4) ? "#22c55e" : "#888";
+            const isLevel = (pitch < 4 && roll < 4);
+            document.getElementById('level-val').innerText = isLevel ? "PERFECTLY LEVEL" : "TILTED";
+            document.getElementById('level-val').style.color = isLevel ? "#22c55e" : "#888";
         });
 
         reticle = new THREE.Mesh(
@@ -196,7 +200,7 @@
     function updateStatus() {
         if (scannedPoints.length >= 2) {
             document.getElementById('instruction').innerHTML = 
-                `Last: <b>${formatDistance(lastSegmentMeters)}</b> | Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
+                `Last: <b>${formatDistance(lastSegmentMeters)}</b><br>Total: <b>${formatDistance(totalDistanceMeters)}</b>`;
         } else if (scannedPoints.length === 1) {
             document.getElementById('instruction').innerText = "First point set. Find next point.";
         }
